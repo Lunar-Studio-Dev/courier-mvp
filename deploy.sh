@@ -337,6 +337,9 @@ pnpm db:migrate
 say "Seeding master data"
 pnpm db:seed:all
 
+say "Seeding demo data (branches, customers, shipments)"
+pnpm seed:demo
+
 # Free RAM for the build. Postgres isn't needed during `pnpm build` (next
 # build + tsup are offline), and on a light VPS the container competing for
 # memory can OOM-kill the build.
