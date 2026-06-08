@@ -1,0 +1,37 @@
+{
+  "name": "trpc-monorepo",
+  "private": true,
+  "scripts": {
+    "build": "dotenv -- turbo build",
+    "dev": "dotenv -- turbo dev",
+    "db:generate": "dotenv -- turbo db:generate",
+    "db:migrate": "dotenv -- turbo db:migrate",
+    "db:seed": "pnpm --filter @repo/database db:seed",
+    "db:seed:destinations": "pnpm --filter @repo/database db:seed:destinations",
+    "db:seed:admin": "pnpm --filter @repo/database db:seed:admin",
+    "db:seed:pricing": "pnpm --filter @repo/database db:seed:pricing",
+    "db:seed:invoices": "pnpm --filter @repo/database db:seed:invoices",
+    "db:seed:all": "pnpm db:seed && pnpm db:seed:destinations && pnpm db:seed:admin && pnpm db:seed:pricing && pnpm db:seed:invoices",
+    "db:setup": "pnpm db:migrate && pnpm db:seed:all",
+    "seed:demo": "dotenv -- tsx scripts/seed-demo-shipments.ts",
+    "setup": "bash setup.sh",
+    "setup:prod": "bash setup.sh --prod",
+    "setup:force": "bash setup.sh --force",
+    "check:env": "bash scripts/check-env.sh",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "check-types": "turbo run check-types"
+  },
+  "devDependencies": {
+    "prettier": "^3.7.4",
+    "turbo": "^2.7.2",
+    "typescript": "5.9.2"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv-cli": "^11.0.0"
+  }
+}

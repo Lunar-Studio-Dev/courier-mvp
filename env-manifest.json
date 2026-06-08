@@ -1,0 +1,79 @@
+{
+  "variables": [
+    {
+      "key": "DATABASE_URL",
+      "default": "postgresql://postgres:postgres@localhost:5432/dev",
+      "comment": "PostgreSQL connection string",
+      "targets": ["apps/api/.env", "apps/web/.env", "packages/database/.env", "packages/services/.env"],
+      "required": true
+    },
+    {
+      "key": "NODE_ENV",
+      "default": "development",
+      "comment": "Runtime environment (development | prod)",
+      "targets": ["apps/api/.env", "apps/web/.env", "packages/logger/.env"]
+    },
+    {
+      "key": "PORT",
+      "default": "8000",
+      "comment": "API server port",
+      "targets": ["apps/api/.env"]
+    },
+    {
+      "key": "BASE_URL",
+      "default": "http://localhost:8000",
+      "comment": "API base URL for OpenAPI and tRPC",
+      "targets": ["apps/api/.env"]
+    },
+    {
+      "key": "JWT_SECRET",
+      "default": "",
+      "comment": "Secret for signing JWTs (auto-generated in dev)",
+      "targets": ["apps/api/.env", "apps/web/.env", "packages/services/.env"],
+      "generate": "openssl rand -base64 32",
+      "required": true
+    },
+    {
+      "key": "GOOGLE_OAUTH_CLIENT_ID",
+      "default": "",
+      "comment": "Google OAuth client ID",
+      "targets": ["apps/api/.env", "apps/web/.env", "packages/services/.env"]
+    },
+    {
+      "key": "GOOGLE_OAUTH_CLIENT_SECRET",
+      "default": "",
+      "comment": "Google OAuth client secret",
+      "targets": ["apps/api/.env", "apps/web/.env", "packages/services/.env"]
+    },
+    {
+      "key": "GOOGLE_OAUTH_REDIRECT_URI",
+      "default": "http://localhost:8000/api/auth/google/callback",
+      "comment": "Google OAuth redirect URI",
+      "targets": ["apps/api/.env", "apps/web/.env", "packages/services/.env"]
+    },
+    {
+      "key": "NEXT_PUBLIC_API_URL",
+      "default": "http://localhost:8000/trpc",
+      "comment": "tRPC API URL for Next.js client",
+      "targets": ["apps/web/.env"]
+    },
+    {
+      "key": "LOGGER_LEVEL",
+      "default": "debug",
+      "comment": "Pino log level (error | info | debug)",
+      "targets": ["apps/api/.env", "apps/web/.env", "packages/logger/.env"]
+    },
+    {
+      "key": "OTP_EXPIRY_MINUTES",
+      "default": "10",
+      "comment": "OTP validity window in minutes",
+      "targets": ["apps/api/.env", "apps/web/.env", "packages/services/.env"]
+    },
+    {
+      "key": "SMS_PROVIDER",
+      "default": "console",
+      "comment": "SMS provider (console | twilio)",
+      "targets": ["apps/api/.env", "apps/web/.env", "packages/services/.env"]
+    }
+  ]
+}
