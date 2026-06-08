@@ -4,6 +4,7 @@ import { app as expressApplication } from "./server";
 
 import { env } from "./env";
 
+console.log({ ...env })
 async function init() {
   try {
     const server = http.createServer(expressApplication);

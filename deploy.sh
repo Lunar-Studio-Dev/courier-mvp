@@ -341,7 +341,7 @@ say "Stopping Postgres to free memory for the build"
 docker compose stop
 
 say "Building all apps (turbo, cache bypassed)"
-pnpm build --force
+pnpm build -- --force
 
 say "Restarting Postgres"
 export DB_USER DB_PASSWORD DB_NAME DB_PORT
