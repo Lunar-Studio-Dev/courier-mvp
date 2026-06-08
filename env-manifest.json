@@ -2,7 +2,7 @@
   "variables": [
     {
       "key": "DATABASE_URL",
-      "default": "postgresql://postgres:postgres@localhost:5432/dev",
+      "default": "postgresql://postgres:postgres@localhost:5432/courier",
       "comment": "PostgreSQL connection string",
       "targets": ["apps/api/.env", "apps/web/.env", "packages/database/.env", "packages/services/.env"],
       "required": true
