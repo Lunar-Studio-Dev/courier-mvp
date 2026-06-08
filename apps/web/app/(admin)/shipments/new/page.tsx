@@ -10,17 +10,16 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Switch } from "~/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
 import { Separator } from "~/components/ui/separator";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { CustomerSelect } from "./_components/customer-select";
 import { PriceCalculator } from "./_components/price-calculator";
+import {
+  ComboboxWithCreate,
+  type ComboboxItem,
+} from "~/components/shared/combobox-with-create";
+import { CreateBranchModal } from "./_components/create-branch-modal";
+import { CreateSimpleTypeModal } from "./_components/create-simple-type-modal";
 import Link from "next/link";
 
 type CustomerInfo = {
@@ -49,6 +48,13 @@ export default function NewShipmentPage() {
   const [declaredValue, setDeclaredValue] = useState("");
   const [gstEnabled, setGstEnabled] = useState(true);
 
+  // Modal states
+  const [showBranchModal, setShowBranchModal] = useState(false);
+  const [simpleTypeModal, setSimpleTypeModal] = useState<{
+    open: boolean;
+    type: "productType" | "serviceType" | "modeType";
+  }>({ open: false, type: "productType" });
+
   const { data: branches } = trpc.branches.list.useQuery({ limit: 100 });
   const { data: productTypes } = trpc.productTypes.list.useQuery({ limit: 100 });
   const { data: serviceTypes } = trpc.serviceTypes.list.useQuery({ limit: 100 });
@@ -62,7 +68,15 @@ export default function NewShipmentPage() {
     onError: (err) => toast.error(err.message),
   });
 
-  const canSubmit = senderId && receiverId && branchId && productTypeId && serviceTypeId && modeTypeId && weight && declaredValue;
+  const canSubmit =
+    senderId &&
+    receiverId &&
+    branchId &&
+    productTypeId &&
+    serviceTypeId &&
+    modeTypeId &&
+    weight &&
+    declaredValue;
 
   function handleSubmit() {
     if (!canSubmit) return;
@@ -79,18 +93,47 @@ export default function NewShipmentPage() {
     });
   }
 
+  // Build combobox items
+  const branchItems: ComboboxItem[] =
+    branches?.data
+      ?.filter((b) => b.isActive)
+      .map((b) => ({
+        value: b.id,
+        label: b.name,
+        sublabel: b.city,
+      })) ?? [];
+
+  const productTypeItems: ComboboxItem[] =
+    productTypes?.data
+      ?.filter((p) => p.isActive)
+      .map((p) => ({ value: p.id, label: p.name })) ?? [];
+
+  const serviceTypeItems: ComboboxItem[] =
+    serviceTypes?.data
+      ?.filter((s) => s.isActive)
+      .map((s) => ({ value: s.id, label: s.name })) ?? [];
+
+  const modeTypeItems: ComboboxItem[] =
+    modeTypes?.data
+      ?.filter((m) => m.isActive)
+      .map((m) => ({ value: m.id, label: m.name })) ?? [];
+
   return (
     <div className="p-6 space-y-6 max-w-4xl">
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon" asChild>
-          <Link href="/shipments"><ArrowLeft className="h-4 w-4" /></Link>
+          <Link href="/shipments">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
         </Button>
         <PageHeader title="Create Shipment" description="Book a new shipment." />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="text-base">Sender</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">Sender</CardTitle>
+          </CardHeader>
           <CardContent>
             <CustomerSelect
               label="Select Sender"
@@ -103,7 +146,9 @@ export default function NewShipmentPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Receiver</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">Receiver</CardTitle>
+          </CardHeader>
           <CardContent>
             <CustomerSelect
               label="Select Receiver"
@@ -117,51 +162,63 @@ export default function NewShipmentPage() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">Shipment Details</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-base">Shipment Details</CardTitle>
+        </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Branch</Label>
-            <Select value={branchId} onValueChange={setBranchId}>
-              <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
-              <SelectContent>
-                {branches?.data?.filter((b) => b.isActive).map((b) => (
-                  <SelectItem key={b.id} value={b.id}>{b.name} ({b.city})</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <ComboboxWithCreate
+              items={branchItems}
+              value={branchId}
+              onChange={setBranchId}
+              placeholder="Select branch"
+              searchPlaceholder="Search branches..."
+              addNewLabel="Add New Branch"
+              onAddNew={() => setShowBranchModal(true)}
+            />
           </div>
           <div className="space-y-2">
             <Label>Product Type</Label>
-            <Select value={productTypeId} onValueChange={setProductTypeId}>
-              <SelectTrigger><SelectValue placeholder="Select product type" /></SelectTrigger>
-              <SelectContent>
-                {productTypes?.data?.filter((p) => p.isActive).map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <ComboboxWithCreate
+              items={productTypeItems}
+              value={productTypeId}
+              onChange={setProductTypeId}
+              placeholder="Select product type"
+              searchPlaceholder="Search product types..."
+              addNewLabel="Add New Product Type"
+              onAddNew={() =>
+                setSimpleTypeModal({ open: true, type: "productType" })
+              }
+            />
           </div>
           <div className="space-y-2">
             <Label>Service Type</Label>
-            <Select value={serviceTypeId} onValueChange={setServiceTypeId}>
-              <SelectTrigger><SelectValue placeholder="Select service type" /></SelectTrigger>
-              <SelectContent>
-                {serviceTypes?.data?.filter((s) => s.isActive).map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <ComboboxWithCreate
+              items={serviceTypeItems}
+              value={serviceTypeId}
+              onChange={setServiceTypeId}
+              placeholder="Select service type"
+              searchPlaceholder="Search service types..."
+              addNewLabel="Add New Service Type"
+              onAddNew={() =>
+                setSimpleTypeModal({ open: true, type: "serviceType" })
+              }
+            />
           </div>
           <div className="space-y-2">
             <Label>Mode Type</Label>
-            <Select value={modeTypeId} onValueChange={setModeTypeId}>
-              <SelectTrigger><SelectValue placeholder="Select mode type" /></SelectTrigger>
-              <SelectContent>
-                {modeTypes?.data?.filter((m) => m.isActive).map((m) => (
-                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <ComboboxWithCreate
+              items={modeTypeItems}
+              value={modeTypeId}
+              onChange={setModeTypeId}
+              placeholder="Select mode type"
+              searchPlaceholder="Search mode types..."
+              addNewLabel="Add New Mode Type"
+              onAddNew={() =>
+                setSimpleTypeModal({ open: true, type: "modeType" })
+              }
+            />
           </div>
           <div className="space-y-2">
             <Label>Weight (kg)</Label>
@@ -206,10 +263,13 @@ export default function NewShipmentPage() {
         />
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Confirm Booking</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">Confirm Booking</CardTitle>
+          </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Review all details above before booking. A tracking number will be generated automatically.
+              Review all details above before booking. A tracking number will be
+              generated automatically.
             </p>
             <Separator />
             <Button
@@ -218,12 +278,41 @@ export default function NewShipmentPage() {
               disabled={!canSubmit || createMutation.isPending}
               onClick={handleSubmit}
             >
-              {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {createMutation.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
               Book Shipment
             </Button>
           </CardContent>
         </Card>
       </div>
+
+      {/* Inline creation modals */}
+      <CreateBranchModal
+        open={showBranchModal}
+        onOpenChange={setShowBranchModal}
+        onCreated={setBranchId}
+      />
+      <CreateSimpleTypeModal
+        open={simpleTypeModal.open}
+        onOpenChange={(open) =>
+          setSimpleTypeModal((prev) => ({ ...prev, open }))
+        }
+        entityType={simpleTypeModal.type}
+        onCreated={(id) => {
+          switch (simpleTypeModal.type) {
+            case "productType":
+              setProductTypeId(id);
+              break;
+            case "serviceType":
+              setServiceTypeId(id);
+              break;
+            case "modeType":
+              setModeTypeId(id);
+              break;
+          }
+        }}
+      />
     </div>
   );
 }

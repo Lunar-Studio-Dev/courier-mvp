@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, count, sql } from "drizzle-orm";
+import { count, sql } from "drizzle-orm";
 import {
   customersTable,
   branchesTable,
@@ -15,16 +15,6 @@ const db = drizzle(process.env.DATABASE_URL!);
 
 const DEMO_TRACKING_PREFIX = "TPCDEMO";
 
-const STATUSES = [
-  "BOOKED",
-  "PICKED_UP",
-  "IN_TRANSIT",
-  "OUT_FOR_DELIVERY",
-  "DELIVERED",
-  "CANCELLED",
-  "RETURNED",
-] as const;
-
 const STATUS_REMARKS: Record<string, string> = {
   BOOKED: "Shipment booked",
   PICKED_UP: "Package picked up from sender",
@@ -35,15 +25,15 @@ const STATUS_REMARKS: Record<string, string> = {
   RETURNED: "Returned to sender",
 };
 
-// Status distribution: realistic mix
+// 150 shipments with realistic distribution
 const STATUS_DISTRIBUTION = [
-  { status: "DELIVERED", count: 20 },
-  { status: "IN_TRANSIT", count: 8 },
-  { status: "OUT_FOR_DELIVERY", count: 5 },
-  { status: "BOOKED", count: 5 },
-  { status: "PICKED_UP", count: 5 },
-  { status: "CANCELLED", count: 4 },
-  { status: "RETURNED", count: 3 },
+  { status: "DELIVERED", count: 65 },
+  { status: "IN_TRANSIT", count: 25 },
+  { status: "OUT_FOR_DELIVERY", count: 15 },
+  { status: "BOOKED", count: 15 },
+  { status: "PICKED_UP", count: 12 },
+  { status: "CANCELLED", count: 10 },
+  { status: "RETURNED", count: 8 },
 ];
 
 function randomBetween(min: number, max: number): number {
@@ -65,10 +55,14 @@ function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
 }
 
+// Distribute items across all options for better pie charts
+function pickRoundRobin<T>(arr: T[], index: number): T {
+  return arr[index % arr.length]!;
+}
+
 async function seed() {
   console.log("Seeding demo shipments...");
 
-  // Check if demo shipments already exist
   const [existing] = await db
     .select({ count: count() })
     .from(shipmentsTable)
@@ -80,7 +74,6 @@ async function seed() {
     process.exit(0);
   }
 
-  // Load reference data
   const customers = await db.select().from(customersTable);
   const branches = await db.select().from(branchesTable);
   const productTypes = await db.select().from(productTypesTable);
@@ -88,43 +81,43 @@ async function seed() {
   const modeTypes = await db.select().from(modeTypesTable);
 
   if (customers.length < 2) {
-    console.error("  Need at least 2 customers. Run seed scripts first.");
-    console.error("  pnpm db:seed && create some customers via the admin panel.");
+    console.error("  Need at least 2 customers. Run: pnpm db:seed:demo-customers");
     process.exit(1);
   }
-
   if (branches.length === 0) {
-    console.error("  No branches found. Create at least one branch via the admin panel.");
+    console.error("  No branches found. Run: pnpm db:seed:demo-branches");
     process.exit(1);
   }
-
   if (productTypes.length === 0 || serviceTypes.length === 0 || modeTypes.length === 0) {
     console.error("  Missing master data. Run: pnpm db:seed");
     process.exit(1);
   }
 
   console.log(`  Found ${customers.length} customers, ${branches.length} branches`);
+  console.log(`  ${productTypes.length} product types, ${serviceTypes.length} service types, ${modeTypes.length} mode types`);
 
   let seqNum = 1;
   let totalCreated = 0;
+  let globalIndex = 0;
 
   for (const { status: targetStatus, count: shipmentCount } of STATUS_DISTRIBUTION) {
     for (let i = 0; i < shipmentCount; i++) {
-      // Pick random sender and receiver (must be different)
       const sender = pickRandom(customers);
       let receiver = pickRandom(customers);
       while (receiver.id === sender.id && customers.length > 1) {
         receiver = pickRandom(customers);
       }
 
-      const branch = pickRandom(branches);
-      const productType = pickRandom(productTypes);
-      const serviceType = pickRandom(serviceTypes);
-      const modeType = pickRandom(modeTypes);
+      // Round-robin to ensure all types appear in analytics
+      const branch = pickRoundRobin(branches, globalIndex);
+      const productType = pickRoundRobin(productTypes, globalIndex);
+      const serviceType = pickRoundRobin(serviceTypes, globalIndex);
+      const modeType = pickRoundRobin(modeTypes, globalIndex);
+      globalIndex++;
 
-      const weight = (Math.random() * 20 + 0.5).toFixed(3);
+      const weight = (Math.random() * 15 + 0.5).toFixed(3);
       const declaredValue = randomBetween(500, 50000).toFixed(2);
-      const basePrice = randomBetween(100, 5000).toFixed(2);
+      const basePrice = randomBetween(200, 3000).toFixed(2);
       const gstEnabled = Math.random() > 0.1;
       const gstType = sender.state === receiver.state ? "CGST+SGST" : "IGST";
       const gstRate = "18.00";
@@ -138,7 +131,8 @@ async function seed() {
       const trackingNumber = `${DEMO_TRACKING_PREFIX}${seqNum.toString().padStart(5, "0")}`;
       seqNum++;
 
-      const bookedAt = randomDate(60);
+      // Spread shipments across 90 days
+      const bookedAt = randomDate(90);
 
       const senderAddress = {
         fullName: sender.fullName,
@@ -189,13 +183,11 @@ async function seed() {
         })
         .returning({ id: shipmentsTable.id });
 
-      // Create tracking history up to current status
       const normalFlow = ["BOOKED", "PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"];
       const isTerminal = targetStatus === "CANCELLED" || targetStatus === "RETURNED";
 
       let statusIndex = normalFlow.indexOf(targetStatus);
       if (isTerminal) {
-        // For cancelled/returned, create history up to some random point then terminal
         statusIndex = randomBetween(0, 2);
       }
 
@@ -213,7 +205,6 @@ async function seed() {
         historyTime = addHours(historyTime, randomBetween(4, 48));
       }
 
-      // Add terminal status entry
       if (isTerminal) {
         historyEntries.push({
           shipmentId: shipment!.id,

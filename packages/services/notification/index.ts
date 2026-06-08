@@ -3,7 +3,7 @@ import {
   notificationConfigsTable,
   notificationEventsTable,
 } from "@repo/database/schema";
-import { eq, and, count, desc, gte, lte, SQL } from "drizzle-orm";
+import { eq, and, count, desc, gte, lte, gt, SQL } from "drizzle-orm";
 import {
   EmailNotificationFactory,
   SmsNotificationFactory,
@@ -235,6 +235,27 @@ class NotificationConfigService {
       page,
       limit,
     };
+  }
+  async getRecentEvents(since: string) {
+    const sinceDate = new Date(since);
+    const events = await db
+      .select()
+      .from(notificationEventsTable)
+      .where(gt(notificationEventsTable.sentAt, sinceDate))
+      .orderBy(desc(notificationEventsTable.sentAt))
+      .limit(20);
+
+    return events.map((e) => ({
+      id: e.id,
+      eventType: e.eventType,
+      channel: e.channel,
+      provider: e.provider,
+      recipient: e.recipient,
+      status: e.status,
+      messageId: e.messageId,
+      error: e.error,
+      sentAt: e.sentAt,
+    }));
   }
 }
 

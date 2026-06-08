@@ -7,6 +7,8 @@ import {
   testChannelOutputSchema,
   notificationEventListInputSchema,
   notificationEventListOutputSchema,
+  recentEventsInputSchema,
+  recentEventsOutputSchema,
 } from "@repo/services/notification/model";
 import { zodUndefinedModel } from "../../schema";
 import { adminProcedure, router } from "../../trpc";
@@ -43,4 +45,12 @@ export const notificationRouter = router({
     .input(notificationEventListInputSchema)
     .output(notificationEventListOutputSchema)
     .query(({ input }) => notificationConfigService.getEventLog(input)),
+
+  recentEvents: adminProcedure
+    .meta({
+      openapi: { method: "GET", path: getPath("/events/recent"), tags: TAGS },
+    })
+    .input(recentEventsInputSchema)
+    .output(recentEventsOutputSchema)
+    .query(({ input }) => notificationConfigService.getRecentEvents(input.since)),
 });

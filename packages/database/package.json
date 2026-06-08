@@ -9,6 +9,8 @@
     "db:seed:admin": "dotenv -- tsx seed/admin.ts",
     "db:seed:pricing": "dotenv -- tsx seed/pricing-rules.ts",
     "db:seed:invoices": "dotenv -- tsx seed/invoice-templates.ts",
+    "db:seed:demo-branches": "dotenv -- tsx seed/demo-branches.ts",
+    "db:seed:demo-customers": "dotenv -- tsx seed/demo-customers.ts",
     "dev": "dotenv -- drizzle-kit studio"
   },
   "devDependencies": {

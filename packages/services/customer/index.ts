@@ -168,6 +168,17 @@ class CustomerService {
   }
 
   async search(query: string) {
+    const conditions = [eq(customersTable.isActive, true)];
+
+    if (query.length > 0) {
+      conditions.push(
+        or(
+          ilike(customersTable.fullName, `%${query}%`),
+          ilike(customersTable.phone, `%${query}%`),
+        )!,
+      );
+    }
+
     const results = await db
       .select({
         id: customersTable.id,
@@ -175,15 +186,8 @@ class CustomerService {
         phone: customersTable.phone,
       })
       .from(customersTable)
-      .where(
-        and(
-          eq(customersTable.isActive, true),
-          or(
-            ilike(customersTable.fullName, `%${query}%`),
-            ilike(customersTable.phone, `%${query}%`),
-          ),
-        ),
-      )
+      .where(and(...conditions))
+      .orderBy(customersTable.fullName)
       .limit(10);
 
     return results;

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Package, Menu, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
+import { ThemeToggle } from "~/components/shared/theme-toggle";
 import {
   Sheet,
   SheetContent,
@@ -49,6 +50,7 @@ export default function PublicLayout({
                   </Button>
                 </Link>
               ))}
+              <ThemeToggle />
             </nav>
 
             {/* Mobile nav */}
@@ -76,6 +78,9 @@ export default function PublicLayout({
                       </Link>
                     </SheetClose>
                   ))}
+                  <div className="pt-2 border-t">
+                    <ThemeToggle />
+                  </div>
                 </nav>
               </SheetContent>
             </Sheet>

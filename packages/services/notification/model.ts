@@ -76,3 +76,9 @@ export const notificationEventListOutputSchema = z.object({
 export type NotificationEventListOutput = z.infer<
   typeof notificationEventListOutputSchema
 >;
+
+export const recentEventsInputSchema = z.object({
+  since: z.string(),
+});
+
+export const recentEventsOutputSchema = z.array(notificationEventOutputSchema);

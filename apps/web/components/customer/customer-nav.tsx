@@ -7,6 +7,7 @@ import { Package, Search, ClipboardList, User, Menu, X, LogOut } from "lucide-re
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import { trpc } from "~/trpc/client";
+import { ThemeToggle } from "~/components/shared/theme-toggle";
 
 const navLinks = [
   { title: "Track Shipment", href: "/portal/track", icon: Search },
@@ -51,6 +52,7 @@ export function CustomerNav() {
                 </Button>
               </Link>
             ))}
+            <ThemeToggle />
             {user && (
               <Button
                 variant="ghost"

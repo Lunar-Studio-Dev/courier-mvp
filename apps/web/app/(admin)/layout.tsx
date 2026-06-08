@@ -2,6 +2,8 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "~/components/ui/s
 import { Separator } from "~/components/ui/separator";
 import { AppSidebar } from "~/components/admin/app-sidebar";
 import { AuthGuard } from "~/components/admin/auth-guard";
+import { NotificationToastListener } from "~/components/admin/notification-toast-listener";
+import { ThemeToggle } from "~/components/shared/theme-toggle";
 
 export default function AdminLayout({
   children,
@@ -19,9 +21,13 @@ export default function AdminLayout({
             <span className="text-sm font-medium text-muted-foreground">
               Admin Portal
             </span>
+            <div className="ml-auto">
+              <ThemeToggle />
+            </div>
           </header>
           <div className="flex-1">{children}</div>
         </SidebarInset>
+        <NotificationToastListener />
       </SidebarProvider>
     </AuthGuard>
   );

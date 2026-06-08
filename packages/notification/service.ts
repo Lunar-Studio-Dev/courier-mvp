@@ -18,6 +18,7 @@ import type {
 import { EmailNotificationFactory } from "./channels/email/factory";
 import { SmsNotificationFactory } from "./channels/sms/factory";
 import { WhatsAppNotificationFactory } from "./channels/whatsapp/factory";
+import { MockNotificationAdapter } from "./channels/mock/adapter";
 
 import {
   getShipmentBookedEmail,
@@ -79,6 +80,15 @@ export class NotificationService {
       } catch {
         // Skip adapters that fail to initialize
       }
+    }
+
+    // Fallback to mock SMS adapter when no real providers are configured
+    if (adapters.length === 0) {
+      adapters.push({
+        channel: "sms",
+        provider: "mock",
+        adapter: new MockNotificationAdapter("sms") as any,
+      });
     }
 
     return adapters;
@@ -156,7 +166,6 @@ export class NotificationService {
 
   async sendShipmentBooked(data: ShipmentBookedData): Promise<NotificationResult[]> {
     const adapters = await this.getActiveAdapters();
-    if (adapters.length === 0) return [];
 
     return this.sendAndLog("SHIPMENT_BOOKED", adapters, (channel) => {
       switch (channel) {
@@ -180,7 +189,6 @@ export class NotificationService {
 
   async sendStatusUpdate(data: StatusUpdateData): Promise<NotificationResult[]> {
     const adapters = await this.getActiveAdapters();
-    if (adapters.length === 0) return [];
 
     return this.sendAndLog("STATUS_UPDATE", adapters, (channel) => {
       switch (channel) {
@@ -204,7 +212,6 @@ export class NotificationService {
 
   async sendDeliveryConfirmation(data: DeliveryConfirmationData): Promise<NotificationResult[]> {
     const adapters = await this.getActiveAdapters();
-    if (adapters.length === 0) return [];
 
     return this.sendAndLog("DELIVERED", adapters, (channel) => {
       switch (channel) {

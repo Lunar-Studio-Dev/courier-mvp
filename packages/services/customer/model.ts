@@ -55,7 +55,7 @@ export const listCustomersInputSchema = z.object({
 export type ListCustomersInput = z.infer<typeof listCustomersInputSchema>;
 
 export const searchCustomersInputSchema = z.object({
-  query: z.string().min(1),
+  query: z.string().min(0),
 });
 
 export const getByIdInputSchema = z.object({
