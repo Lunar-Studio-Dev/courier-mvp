@@ -16,6 +16,9 @@ packages/*/.env.local
 # Environment backups
 *.env.bak
 
+# Deploy config (contains secrets)
+.deploy.conf
+
 # Build outputs
 dist/
 .next/

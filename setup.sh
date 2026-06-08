@@ -114,7 +114,26 @@ echo "Targets: ${TARGET_FILES[*]}"
 echo ""
 
 # ------------------------------------------------------------------
-# Process each target file
+# Phase 1: Resolve every unique key ONCE (prompt/generate just once)
+# ------------------------------------------------------------------
+
+declare -A RESOLVED_VALUES
+
+mapfile -t UNIQUE_KEYS < <(jq -r '.variables[].key' "$MANIFEST" | sort -u)
+
+for key in "${UNIQUE_KEYS[@]}"; do
+  default_val=$(jq -r --arg k "$key" \
+    '[.variables[] | select(.key == $k)][0].default // ""' "$MANIFEST")
+  generate_cmd=$(jq -r --arg k "$key" \
+    '[.variables[] | select(.key == $k)][0].generate // ""' "$MANIFEST")
+  required=$(jq -r --arg k "$key" \
+    '[.variables[] | select(.key == $k)][0].required // false' "$MANIFEST")
+
+  RESOLVED_VALUES["$key"]=$(resolve_value "$key" "$default_val" "$generate_cmd" "$required")
+done
+
+# ------------------------------------------------------------------
+# Phase 2: Write resolved values into each target file
 # ------------------------------------------------------------------
 
 CREATED=0
@@ -163,16 +182,10 @@ for target in "${TARGET_FILES[@]}"; do
   for i in $(seq 0 $((var_count - 1))); do
     key=$(jq -r --arg t "$target" --argjson i "$i" \
       '[.variables[] | select(.targets[] == $t)][$i].key' "$MANIFEST")
-    default_val=$(jq -r --arg t "$target" --argjson i "$i" \
-      '[.variables[] | select(.targets[] == $t)][$i].default // ""' "$MANIFEST")
     comment=$(jq -r --arg t "$target" --argjson i "$i" \
       '[.variables[] | select(.targets[] == $t)][$i].comment // ""' "$MANIFEST")
-    generate_cmd=$(jq -r --arg t "$target" --argjson i "$i" \
-      '[.variables[] | select(.targets[] == $t)][$i].generate // ""' "$MANIFEST")
-    required=$(jq -r --arg t "$target" --argjson i "$i" \
-      '[.variables[] | select(.targets[] == $t)][$i].required // false' "$MANIFEST")
 
-    value=$(resolve_value "$key" "$default_val" "$generate_cmd" "$required")
+    value="${RESOLVED_VALUES[$key]}"
 
     if append_if_missing "$target_path" "$key" "$value" "$comment"; then
       inc added
@@ -233,22 +246,11 @@ if [ ! -f "$ROOT_ENV" ] || [ "$MODE" = "force" ]; then
     echo ""
   } > "$ROOT_ENV"
 
-  # Collect all unique variables across all targets
-  mapfile -t ALL_KEYS < <(jq -r '.variables[].key' "$MANIFEST" | sort -u)
-
-  for key in "${ALL_KEYS[@]}"; do
-    default_val=$(jq -r --arg k "$key" \
-      '.variables[] | select(.key == $k) | .default // ""' "$MANIFEST" | head -1)
+  for key in "${UNIQUE_KEYS[@]}"; do
     comment=$(jq -r --arg k "$key" \
-      '.variables[] | select(.key == $k) | .comment // ""' "$MANIFEST" | head -1)
-    generate_cmd=$(jq -r --arg k "$key" \
-      '.variables[] | select(.key == $k) | .generate // ""' "$MANIFEST" | head -1)
-    required=$(jq -r --arg k "$key" \
-      '.variables[] | select(.key == $k) | .required // false' "$MANIFEST" | head -1)
+      '[.variables[] | select(.key == $k)][0].comment // ""' "$MANIFEST")
 
-    value=$(resolve_value "$key" "$default_val" "$generate_cmd" "$required")
-
-    append_if_missing "$ROOT_ENV" "$key" "$value" "$comment" || true
+    append_if_missing "$ROOT_ENV" "$key" "${RESOLVED_VALUES[$key]}" "$comment" || true
   done
 
   echo "  Created root .env"

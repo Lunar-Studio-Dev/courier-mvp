@@ -9,23 +9,13 @@
 # Usage:
 #   bash deploy.sh
 #
-# Interactive once: if env files are missing it runs `setup.sh --prod`, which
-# prompts you for URLs + DB/mail credentials. After that it's hands-off.
+# Interactive once: prompts for domains, DB credentials, and app secrets on
+# first run and saves them to .deploy.conf. Subsequent runs reuse the config.
+# To reconfigure, delete .deploy.conf and .env files, then re-run.
 #
-# Re-runnable: every step is idempotent. Env files already present are reused
-# (no re-prompt). To reconfigure, delete them or run `bash setup.sh --prod`.
+# Re-runnable: every step is idempotent.
 
 set -euo pipefail
-
-# --- Configuration (edit these before running) --------------------------------
-
-FRONTEND_DOMAIN="courier-front.dosomething.qzz.io"
-BACKEND_DOMAIN="courier-back.dosomething.qzz.io"
-FRONTEND_PORT="3000"
-BACKEND_PORT="8000"
-ACME_EMAIL="you@example.com"
-
-# --- Internal constants -------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -33,11 +23,80 @@ cd "$SCRIPT_DIR"
 NODE_MAJOR=24
 NVM_VERSION="v0.40.1"
 PNPM_VERSION="9.0.0"  # matches root package.json "packageManager"
+FRONTEND_PORT="3000"
+BACKEND_PORT="8000"
 
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
 
 say() { printf '\n\033[1;36m>> %s\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31m!! %s\033[0m\n' "$*" >&2; exit 1; }
+
+# --- 0. Interactive configuration (saved to .deploy.conf) ---------------------
+
+DEPLOY_CONF="$SCRIPT_DIR/.deploy.conf"
+
+if [ -f "$DEPLOY_CONF" ]; then
+  # shellcheck disable=SC1090
+  source "$DEPLOY_CONF"
+  say "Loaded config from .deploy.conf"
+  echo "  Frontend : $FRONTEND_DOMAIN"
+  echo "  Backend  : $BACKEND_DOMAIN"
+  echo "  DB       : $DB_USER@localhost:$DB_PORT/$DB_NAME"
+else
+  say "First-time setup -- enter deployment configuration"
+  echo ""
+
+  read -rp "  Frontend domain (e.g. courier.example.com): " FRONTEND_DOMAIN
+  [ -z "$FRONTEND_DOMAIN" ] && die "Frontend domain is required"
+
+  read -rp "  Backend/API domain (e.g. api-courier.example.com): " BACKEND_DOMAIN
+  [ -z "$BACKEND_DOMAIN" ] && die "Backend domain is required"
+
+  read -rp "  ACME email for Let's Encrypt: " ACME_EMAIL
+  [ -z "$ACME_EMAIL" ] && die "ACME email is required"
+
+  echo ""
+  echo "  -- Database --"
+  read -rp "  Postgres database name [courier]: " DB_NAME
+  DB_NAME="${DB_NAME:-courier}"
+
+  read -rp "  Postgres user [postgres]: " DB_USER
+  DB_USER="${DB_USER:-postgres}"
+
+  read -rsp "  Postgres password [postgres]: " DB_PASSWORD
+  echo
+  DB_PASSWORD="${DB_PASSWORD:-postgres}"
+
+  read -rp "  Postgres host port [5432]: " DB_PORT
+  DB_PORT="${DB_PORT:-5432}"
+
+  echo ""
+  echo "  -- App Secrets --"
+  read -rsp "  JWT secret (leave blank to auto-generate): " JWT_SECRET
+  echo
+  if [ -z "$JWT_SECRET" ]; then
+    JWT_SECRET=$(openssl rand -base64 32)
+    echo "  Auto-generated JWT secret."
+  fi
+
+  # Save config (permissions: owner-only read)
+  cat > "$DEPLOY_CONF" <<CONF
+FRONTEND_DOMAIN="$FRONTEND_DOMAIN"
+BACKEND_DOMAIN="$BACKEND_DOMAIN"
+ACME_EMAIL="$ACME_EMAIL"
+DB_NAME="$DB_NAME"
+DB_USER="$DB_USER"
+DB_PASSWORD="$DB_PASSWORD"
+DB_PORT="$DB_PORT"
+JWT_SECRET="$JWT_SECRET"
+CONF
+  chmod 600 "$DEPLOY_CONF"
+  echo ""
+  echo "  Saved to .deploy.conf (chmod 600)"
+fi
+
+# Build the DATABASE_URL from the prompted credentials.
+DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}"
 
 # --- 1. System packages ------------------------------------------------------
 
@@ -123,7 +182,6 @@ ${COURIER_CADDY_BLOCK}
 EOF
 else
   say "Extending existing /etc/caddy/Caddyfile"
-  # Only append if the frontend domain isn't already configured.
   if ! grep -qF "${FRONTEND_DOMAIN}" "$CADDYFILE"; then
     echo "$COURIER_CADDY_BLOCK" | $SUDO tee -a "$CADDYFILE" >/dev/null
     echo "  Added ${FRONTEND_DOMAIN} + ${BACKEND_DOMAIN}"
@@ -134,52 +192,105 @@ fi
 
 $SUDO caddy validate --config "$CADDYFILE"
 
-# --- 6. Env files (interactive on first run) ----------------------------------
+# --- 6. Env files -------------------------------------------------------------
+# Generate .env files directly from the prompted config. Each variable is
+# written to every target that needs it, but prompted/resolved only once.
 
-ENV_FILES_PRESENT=true
-for f in apps/api/.env apps/web/.env packages/database/.env packages/services/.env; do
-  [ -f "$f" ] || ENV_FILES_PRESENT=false
-done
+say "Writing .env files"
 
-if [ "$ENV_FILES_PRESENT" = true ]; then
-  say "Env files present -- skipping setup.sh (delete them or run 'bash setup.sh --prod' to reconfigure)"
-else
-  say "Generating env files -- enter your production credentials when prompted"
-  bash setup.sh --prod
-fi
-
-# Patch localhost URLs with actual production domains.
-# setup.sh writes dev defaults; we replace them for production.
-say "Patching env files with production domains"
-
-patch_env() {
+write_env() {
   local file="$1"
-  [ -f "$file" ] || return 0
+  shift
+  # "$@" = list of KEY=VALUE pairs to write
 
-  # BASE_URL (API's own URL)
-  sed -i "s|BASE_URL=http://localhost:${BACKEND_PORT}|BASE_URL=https://${BACKEND_DOMAIN}|g" "$file"
+  local dir
+  dir="$(dirname "$file")"
+  mkdir -p "$dir"
 
-  # NEXT_PUBLIC_API_URL (tRPC endpoint for the frontend)
-  sed -i "s|NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT}/trpc|NEXT_PUBLIC_API_URL=https://${BACKEND_DOMAIN}/trpc|g" "$file"
+  if [ -f "$file" ]; then
+    echo "  $file already exists -- skipping (delete to regenerate)"
+    return
+  fi
 
-  # Google OAuth redirect
-  sed -i "s|GOOGLE_OAUTH_REDIRECT_URI=http://localhost:${BACKEND_PORT}/api/auth/google/callback|GOOGLE_OAUTH_REDIRECT_URI=https://${BACKEND_DOMAIN}/api/auth/google/callback|g" "$file"
+  {
+    echo "# Auto-generated by deploy.sh - $(date +%Y-%m-%d)"
+    echo "# Do not commit this file."
+    echo ""
+    for pair in "$@"; do
+      echo "$pair"
+    done
+  } > "$file"
 
-  # NODE_ENV
-  sed -i "s|NODE_ENV=development|NODE_ENV=production|g" "$file"
-
-  # Logger level
-  sed -i "s|LOGGER_LEVEL=debug|LOGGER_LEVEL=info|g" "$file"
+  echo "  Created $file"
 }
 
-patch_env apps/api/.env
-patch_env apps/web/.env
-patch_env packages/database/.env
-patch_env packages/services/.env
-patch_env packages/logger/.env
-patch_env .env
+# Common variable sets
+COMMON_DB="DATABASE_URL=${DATABASE_URL}"
+COMMON_JWT="JWT_SECRET=${JWT_SECRET}"
+COMMON_NODE_ENV="NODE_ENV=production"
+COMMON_LOGGER="LOGGER_LEVEL=info"
+COMMON_OTP="OTP_EXPIRY_MINUTES=10"
+COMMON_SMS="SMS_PROVIDER=console"
+COMMON_GOOGLE_ID="GOOGLE_OAUTH_CLIENT_ID="
+COMMON_GOOGLE_SECRET="GOOGLE_OAUTH_CLIENT_SECRET="
+COMMON_GOOGLE_REDIRECT="GOOGLE_OAUTH_REDIRECT_URI=https://${BACKEND_DOMAIN}/api/auth/google/callback"
 
-echo "  Done."
+write_env apps/api/.env \
+  "$COMMON_DB" \
+  "$COMMON_NODE_ENV" \
+  "PORT=${BACKEND_PORT}" \
+  "BASE_URL=https://${BACKEND_DOMAIN}" \
+  "$COMMON_JWT" \
+  "$COMMON_GOOGLE_ID" \
+  "$COMMON_GOOGLE_SECRET" \
+  "$COMMON_GOOGLE_REDIRECT" \
+  "NEXT_PUBLIC_API_URL=https://${BACKEND_DOMAIN}/trpc" \
+  "$COMMON_LOGGER" \
+  "$COMMON_OTP" \
+  "$COMMON_SMS"
+
+write_env apps/web/.env \
+  "$COMMON_DB" \
+  "$COMMON_NODE_ENV" \
+  "$COMMON_JWT" \
+  "$COMMON_GOOGLE_ID" \
+  "$COMMON_GOOGLE_SECRET" \
+  "$COMMON_GOOGLE_REDIRECT" \
+  "NEXT_PUBLIC_API_URL=https://${BACKEND_DOMAIN}/trpc" \
+  "$COMMON_LOGGER" \
+  "$COMMON_OTP" \
+  "$COMMON_SMS"
+
+write_env packages/database/.env \
+  "$COMMON_DB"
+
+write_env packages/services/.env \
+  "$COMMON_DB" \
+  "$COMMON_JWT" \
+  "$COMMON_GOOGLE_ID" \
+  "$COMMON_GOOGLE_SECRET" \
+  "$COMMON_GOOGLE_REDIRECT" \
+  "$COMMON_OTP" \
+  "$COMMON_SMS"
+
+write_env packages/logger/.env \
+  "$COMMON_NODE_ENV" \
+  "$COMMON_LOGGER"
+
+# Root .env for dotenv-cli / turbo
+write_env .env \
+  "$COMMON_DB" \
+  "$COMMON_NODE_ENV" \
+  "PORT=${BACKEND_PORT}" \
+  "BASE_URL=https://${BACKEND_DOMAIN}" \
+  "$COMMON_JWT" \
+  "$COMMON_GOOGLE_ID" \
+  "$COMMON_GOOGLE_SECRET" \
+  "$COMMON_GOOGLE_REDIRECT" \
+  "NEXT_PUBLIC_API_URL=https://${BACKEND_DOMAIN}/trpc" \
+  "$COMMON_LOGGER" \
+  "$COMMON_OTP" \
+  "$COMMON_SMS"
 
 # --- 7. Docker + Postgres container ------------------------------------------
 
@@ -195,12 +306,15 @@ fi
 docker compose version >/dev/null 2>&1 \
   || die "docker compose plugin missing -- install 'docker-compose-v2'"
 
+# Export DB vars so docker-compose.yml can interpolate them.
+export DB_USER DB_PASSWORD DB_NAME DB_PORT
+
 say "Starting Postgres container"
 docker compose up -d
 
 say "Waiting for Postgres to be ready"
 for i in $(seq 1 30); do
-  if docker exec postgresdb pg_isready -U postgres >/dev/null 2>&1; then
+  if docker exec postgresdb pg_isready -U "$DB_USER" >/dev/null 2>&1; then
     echo "  Postgres ready"
     break
   fi
@@ -232,9 +346,10 @@ say "Building all apps (turbo)"
 pnpm build
 
 say "Restarting Postgres"
+export DB_USER DB_PASSWORD DB_NAME DB_PORT
 docker compose start
 for i in $(seq 1 30); do
-  docker exec postgresdb pg_isready -U postgres >/dev/null 2>&1 && { echo "  Postgres ready"; break; }
+  docker exec postgresdb pg_isready -U "$DB_USER" >/dev/null 2>&1 && { echo "  Postgres ready"; break; }
   [ "$i" -eq 30 ] && die "Postgres did not come back up after build"
   sleep 1
 done
@@ -260,6 +375,7 @@ cat <<EOF
 
   Frontend : https://${FRONTEND_DOMAIN}   (-> 127.0.0.1:${FRONTEND_PORT})
   Backend  : https://${BACKEND_DOMAIN}    (-> 127.0.0.1:${BACKEND_PORT})
+  Database : ${DB_USER}@localhost:${DB_PORT}/${DB_NAME}
 
   Useful commands:
     pm2 status              # process health
@@ -267,5 +383,7 @@ cat <<EOF
     pm2 restart all         # restart both apps
     journalctl -u caddy -f  # TLS / proxy logs
     docker compose logs -f  # Postgres logs
+
+  To reconfigure: delete .deploy.conf and all .env files, then re-run.
 
 EOF
