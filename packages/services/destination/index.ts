@@ -1,6 +1,6 @@
 import { db } from "@repo/database";
 import { destinationsTable } from "@repo/database/schema";
-import { eq, ilike, and, count, sql, SQL, asc } from "drizzle-orm";
+import { eq, ilike, and, or, count, sql, SQL, asc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import type {
   ListDestinationsInput,
@@ -95,6 +95,59 @@ class DestinationService {
       .orderBy(asc(destinationsTable.city));
 
     return rows.map((r) => r.city);
+  }
+
+  async search(query: string): Promise<DestinationOutput[]> {
+    const trimmed = query.trim();
+
+    const baseConditions = eq(destinationsTable.isServiceable, true);
+    let where: SQL | undefined = baseConditions;
+
+    if (trimmed.length > 0) {
+      where = and(
+        baseConditions,
+        or(
+          ilike(destinationsTable.city, `%${trimmed}%`),
+          ilike(destinationsTable.state, `%${trimmed}%`),
+          ilike(destinationsTable.pincode, `%${trimmed}%`),
+        ),
+      );
+    }
+
+    const results = await db
+      .select()
+      .from(destinationsTable)
+      .where(where)
+      .orderBy(asc(destinationsTable.state), asc(destinationsTable.city))
+      .limit(20);
+
+    return results as DestinationOutput[];
+  }
+
+  async create(input: { state: string; city: string; pincode: string }): Promise<DestinationOutput> {
+    const [existing] = await db
+      .select()
+      .from(destinationsTable)
+      .where(eq(destinationsTable.pincode, input.pincode));
+
+    if (existing) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: `Pincode ${input.pincode} already exists (${existing.city}, ${existing.state})`,
+      });
+    }
+
+    const [created] = await db
+      .insert(destinationsTable)
+      .values({
+        state: input.state,
+        city: input.city,
+        pincode: input.pincode,
+        isServiceable: true,
+      })
+      .returning();
+
+    return created as DestinationOutput;
   }
 
   async checkServiceability(pincode: string) {

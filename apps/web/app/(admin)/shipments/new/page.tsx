@@ -20,6 +20,7 @@ import {
 } from "~/components/shared/combobox-with-create";
 import { CreateBranchModal } from "./_components/create-branch-modal";
 import { CreateSimpleTypeModal } from "./_components/create-simple-type-modal";
+import { CreateDestinationModal } from "./_components/create-destination-modal";
 import Link from "next/link";
 
 type CustomerInfo = {
@@ -40,6 +41,9 @@ export default function NewShipmentPage() {
   const [senderInfo, setSenderInfo] = useState<CustomerInfo | null>(null);
   const [receiverInfo, setReceiverInfo] = useState<CustomerInfo | null>(null);
 
+  const [originDestinationId, setOriginDestinationId] = useState("");
+  const [deliveryDestinationId, setDeliveryDestinationId] = useState("");
+
   const [branchId, setBranchId] = useState("");
   const [productTypeId, setProductTypeId] = useState("");
   const [serviceTypeId, setServiceTypeId] = useState("");
@@ -49,11 +53,24 @@ export default function NewShipmentPage() {
   const [gstEnabled, setGstEnabled] = useState(true);
 
   // Modal states
+  const [showOriginDestModal, setShowOriginDestModal] = useState(false);
+  const [showDeliveryDestModal, setShowDeliveryDestModal] = useState(false);
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [simpleTypeModal, setSimpleTypeModal] = useState<{
     open: boolean;
     type: "productType" | "serviceType" | "modeType";
   }>({ open: false, type: "productType" });
+
+  const [originSearch, setOriginSearch] = useState("");
+  const [deliverySearch, setDeliverySearch] = useState("");
+  const { data: originDestinations } = trpc.destinations.search.useQuery(
+    { query: originSearch },
+    { placeholderData: (prev) => prev },
+  );
+  const { data: deliveryDestinations } = trpc.destinations.search.useQuery(
+    { query: deliverySearch },
+    { placeholderData: (prev) => prev },
+  );
 
   const { data: branches } = trpc.branches.list.useQuery({ limit: 100 });
   const { data: productTypes } = trpc.productTypes.list.useQuery({ limit: 100 });
@@ -71,6 +88,8 @@ export default function NewShipmentPage() {
   const canSubmit =
     senderId &&
     receiverId &&
+    originDestinationId &&
+    deliveryDestinationId &&
     branchId &&
     productTypeId &&
     serviceTypeId &&
@@ -84,6 +103,8 @@ export default function NewShipmentPage() {
       branchId,
       senderId,
       receiverId,
+      originDestinationId,
+      deliveryDestinationId,
       productTypeId,
       serviceTypeId,
       modeTypeId,
@@ -94,6 +115,28 @@ export default function NewShipmentPage() {
   }
 
   // Build combobox items
+  const originDestItems: ComboboxItem[] =
+    originDestinations?.map((d) => ({
+      value: d.id,
+      label: `${d.city}, ${d.state}`,
+      sublabel: d.pincode,
+    })) ?? [];
+
+  const deliveryDestItems: ComboboxItem[] =
+    deliveryDestinations?.map((d) => ({
+      value: d.id,
+      label: `${d.city}, ${d.state}`,
+      sublabel: d.pincode,
+    })) ?? [];
+
+  // Find selected destination info for price calculator
+  const selectedOriginDest = originDestinations?.find(
+    (d) => d.id === originDestinationId,
+  );
+  const selectedDeliveryDest = deliveryDestinations?.find(
+    (d) => d.id === deliveryDestinationId,
+  );
+
   const branchItems: ComboboxItem[] =
     branches?.data
       ?.filter((b) => b.isActive)
@@ -160,6 +203,40 @@ export default function NewShipmentPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Route</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>From (Origin)</Label>
+            <ComboboxWithCreate
+              items={originDestItems}
+              value={originDestinationId}
+              onChange={setOriginDestinationId}
+              onSearch={setOriginSearch}
+              placeholder="Select origin"
+              searchPlaceholder="Search city, state, or pincode..."
+              addNewLabel="Add New Destination"
+              onAddNew={() => setShowOriginDestModal(true)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>To (Destination)</Label>
+            <ComboboxWithCreate
+              items={deliveryDestItems}
+              value={deliveryDestinationId}
+              onChange={setDeliveryDestinationId}
+              onSearch={setDeliverySearch}
+              placeholder="Select destination"
+              searchPlaceholder="Search city, state, or pincode..."
+              addNewLabel="Add New Destination"
+              onAddNew={() => setShowDeliveryDestModal(true)}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -251,10 +328,10 @@ export default function NewShipmentPage() {
 
       <div className="grid gap-6 md:grid-cols-2">
         <PriceCalculator
-          originState={senderInfo?.state ?? ""}
-          originCity={senderInfo?.city ?? ""}
-          destinationState={receiverInfo?.state ?? ""}
-          destinationCity={receiverInfo?.city ?? ""}
+          originState={selectedOriginDest?.state ?? ""}
+          originCity={selectedOriginDest?.city ?? ""}
+          destinationState={selectedDeliveryDest?.state ?? ""}
+          destinationCity={selectedDeliveryDest?.city ?? ""}
           productTypeId={productTypeId}
           serviceTypeId={serviceTypeId}
           modeTypeId={modeTypeId}
@@ -288,6 +365,16 @@ export default function NewShipmentPage() {
       </div>
 
       {/* Inline creation modals */}
+      <CreateDestinationModal
+        open={showOriginDestModal}
+        onOpenChange={setShowOriginDestModal}
+        onCreated={setOriginDestinationId}
+      />
+      <CreateDestinationModal
+        open={showDeliveryDestModal}
+        onOpenChange={setShowDeliveryDestModal}
+        onCreated={setDeliveryDestinationId}
+      />
       <CreateBranchModal
         open={showBranchModal}
         onOpenChange={setShowBranchModal}

@@ -4,10 +4,12 @@ import {
   shipmentTrackingHistoryTable,
   customersTable,
   branchesTable,
+  destinationsTable,
   productTypesTable,
   serviceTypesTable,
   modeTypesTable,
 } from "@repo/database/schema";
+import { alias } from "drizzle-orm/pg-core";
 import { eq, and, count, SQL, ilike, gte, lte, desc, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { NotificationService } from "@repo/notification";
@@ -35,6 +37,9 @@ const GST_RATE = 18;
 
 const pricingRuleService = new PricingRuleService();
 
+const originDest = alias(destinationsTable, "origin_dest");
+const deliveryDest = alias(destinationsTable, "delivery_dest");
+
 const selectWithJoins = {
   id: shipmentsTable.id,
   trackingNumber: shipmentsTable.trackingNumber,
@@ -43,6 +48,8 @@ const selectWithJoins = {
   receiverId: shipmentsTable.receiverId,
   senderAddress: shipmentsTable.senderAddress,
   receiverAddress: shipmentsTable.receiverAddress,
+  originDestinationId: shipmentsTable.originDestinationId,
+  deliveryDestinationId: shipmentsTable.deliveryDestinationId,
   productTypeId: shipmentsTable.productTypeId,
   serviceTypeId: shipmentsTable.serviceTypeId,
   modeTypeId: shipmentsTable.modeTypeId,
@@ -60,6 +67,12 @@ const selectWithJoins = {
   deliveredAt: shipmentsTable.deliveredAt,
   createdAt: shipmentsTable.createdAt,
   updatedAt: shipmentsTable.updatedAt,
+  originCity: originDest.city,
+  originState: originDest.state,
+  originPincode: originDest.pincode,
+  deliveryCity: deliveryDest.city,
+  deliveryState: deliveryDest.state,
+  deliveryPincode: deliveryDest.pincode,
   branchName: branchesTable.name,
   productTypeName: productTypesTable.name,
   serviceTypeName: serviceTypesTable.name,
@@ -71,6 +84,8 @@ function baseQuery() {
     .select(selectWithJoins)
     .from(shipmentsTable)
     .innerJoin(branchesTable, eq(shipmentsTable.branchId, branchesTable.id))
+    .leftJoin(originDest, eq(shipmentsTable.originDestinationId, originDest.id))
+    .leftJoin(deliveryDest, eq(shipmentsTable.deliveryDestinationId, deliveryDest.id))
     .innerJoin(productTypesTable, eq(shipmentsTable.productTypeId, productTypesTable.id))
     .innerJoin(serviceTypesTable, eq(shipmentsTable.serviceTypeId, serviceTypesTable.id))
     .innerJoin(modeTypesTable, eq(shipmentsTable.modeTypeId, modeTypesTable.id));
@@ -93,6 +108,16 @@ class ShipmentService {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Branch not found or inactive" });
     }
 
+    const [originDestination] = await db.select().from(destinationsTable).where(eq(destinationsTable.id, input.originDestinationId));
+    if (!originDestination) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Origin destination not found" });
+    }
+
+    const [deliveryDestination] = await db.select().from(destinationsTable).where(eq(destinationsTable.id, input.deliveryDestinationId));
+    if (!deliveryDestination) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Delivery destination not found" });
+    }
+
     const senderAddr: Address = input.senderAddress ?? {
       fullName: sender.fullName,
       phone: sender.phone,
@@ -112,10 +137,10 @@ class ShipmentService {
     };
 
     const priceResult = await pricingRuleService.calculatePrice({
-      originState: senderAddr.state,
-      originCity: senderAddr.city,
-      destinationState: receiverAddr.state,
-      destinationCity: receiverAddr.city,
+      originState: originDestination.state,
+      originCity: originDestination.city,
+      destinationState: deliveryDestination.state,
+      destinationCity: deliveryDestination.city,
       productTypeId: input.productTypeId,
       serviceTypeId: input.serviceTypeId,
       modeTypeId: input.modeTypeId,
@@ -123,7 +148,7 @@ class ShipmentService {
     });
 
     const basePrice = parseFloat(priceResult.basePrice);
-    const gstType = senderAddr.state === receiverAddr.state ? "CGST+SGST" : "IGST";
+    const gstType = originDestination.state === deliveryDestination.state ? "CGST+SGST" : "IGST";
     const gstAmount = input.gstEnabled ? (basePrice * GST_RATE) / 100 : 0;
     const totalAmount = basePrice + gstAmount;
 
@@ -138,6 +163,8 @@ class ShipmentService {
         receiverId: input.receiverId,
         senderAddress: senderAddr,
         receiverAddress: receiverAddr,
+        originDestinationId: input.originDestinationId,
+        deliveryDestinationId: input.deliveryDestinationId,
         productTypeId: input.productTypeId,
         serviceTypeId: input.serviceTypeId,
         modeTypeId: input.modeTypeId,
@@ -169,8 +196,8 @@ class ShipmentService {
           trackingNumber,
           senderName: senderAddr.fullName,
           receiverName: receiverAddr.fullName,
-          originCity: senderAddr.city,
-          destinationCity: receiverAddr.city,
+          originCity: originDestination.city,
+          destinationCity: deliveryDestination.city,
           weight: input.weight,
           totalAmount: totalAmount.toFixed(2),
           trackingUrl,
@@ -315,11 +342,15 @@ class ShipmentService {
         status: shipmentsTable.status,
         bookedAt: shipmentsTable.bookedAt,
         deliveredAt: shipmentsTable.deliveredAt,
-        senderAddress: shipmentsTable.senderAddress,
-        receiverAddress: shipmentsTable.receiverAddress,
         id: shipmentsTable.id,
+        originCity: originDest.city,
+        originState: originDest.state,
+        deliveryCity: deliveryDest.city,
+        deliveryState: deliveryDest.state,
       })
       .from(shipmentsTable)
+      .leftJoin(originDest, eq(shipmentsTable.originDestinationId, originDest.id))
+      .leftJoin(deliveryDest, eq(shipmentsTable.deliveryDestinationId, deliveryDest.id))
       .where(eq(shipmentsTable.trackingNumber, trackingNumber));
 
     if (!shipment) {
@@ -337,18 +368,15 @@ class ShipmentService {
       .where(eq(shipmentTrackingHistoryTable.shipmentId, shipment.id))
       .orderBy(desc(shipmentTrackingHistoryTable.timestamp));
 
-    const sAddr = shipment.senderAddress as Address;
-    const rAddr = shipment.receiverAddress as Address;
-
     return {
       trackingNumber: shipment.trackingNumber,
       status: shipment.status,
       bookedAt: shipment.bookedAt,
       deliveredAt: shipment.deliveredAt,
-      senderCity: sAddr.city,
-      senderState: sAddr.state,
-      receiverCity: rAddr.city,
-      receiverState: rAddr.state,
+      senderCity: shipment.originCity ?? "",
+      senderState: shipment.originState ?? "",
+      receiverCity: shipment.deliveryCity ?? "",
+      receiverState: shipment.deliveryState ?? "",
       history,
     };
   }

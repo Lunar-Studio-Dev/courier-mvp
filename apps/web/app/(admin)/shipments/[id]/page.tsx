@@ -138,6 +138,23 @@ export default function ShipmentDetailPage({
         </Card>
       </div>
 
+      {(shipment.originCity || shipment.deliveryCity) && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Route</CardTitle></CardHeader>
+          <CardContent className="flex items-center gap-3 text-sm">
+            <div>
+              <p className="font-medium">{shipment.originCity}, {shipment.originState}</p>
+              {shipment.originPincode && <p className="text-muted-foreground">{shipment.originPincode}</p>}
+            </div>
+            <span className="text-muted-foreground">→</span>
+            <div>
+              <p className="font-medium">{shipment.deliveryCity}, {shipment.deliveryState}</p>
+              {shipment.deliveryPincode && <p className="text-muted-foreground">{shipment.deliveryPincode}</p>}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader><CardTitle className="text-base">Sender</CardTitle></CardHeader>

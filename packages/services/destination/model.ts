@@ -62,3 +62,13 @@ export const serviceabilityOutputSchema = z.object({
 export const bulkUpdateOutputSchema = z.object({
   updated: z.number(),
 });
+
+export const searchDestinationsInputSchema = z.object({
+  query: z.string().min(0),
+});
+
+export const createDestinationInputSchema = z.object({
+  state: z.string().min(1).max(100),
+  city: z.string().min(1).max(100),
+  pincode: z.string().length(6).regex(/^\d{6}$/),
+});

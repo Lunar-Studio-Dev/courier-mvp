@@ -12,6 +12,8 @@ import {
   statesListOutputSchema,
   citiesListOutputSchema,
   serviceabilityOutputSchema,
+  searchDestinationsInputSchema,
+  createDestinationInputSchema,
 } from "@repo/services/destination/model";
 import { publicProcedure, adminProcedure, router } from "../../trpc";
 import { generatePath } from "../../utils/path-generator";
@@ -55,4 +57,16 @@ export const destinationRouter = router({
     .input(checkServiceabilityInputSchema)
     .output(serviceabilityOutputSchema)
     .query(({ input }) => destinationService.checkServiceability(input.pincode)),
+
+  search: adminProcedure
+    .meta({ openapi: { method: "GET", path: getPath("/search"), tags: TAGS } })
+    .input(searchDestinationsInputSchema)
+    .output(z.array(destinationOutputSchema))
+    .query(({ input }) => destinationService.search(input.query)),
+
+  create: adminProcedure
+    .meta({ openapi: { method: "POST", path: getPath("/"), tags: TAGS } })
+    .input(createDestinationInputSchema)
+    .output(destinationOutputSchema)
+    .mutation(({ input }) => destinationService.create(input)),
 });

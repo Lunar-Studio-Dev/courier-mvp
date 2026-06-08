@@ -10,6 +10,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { branchesTable } from "./branch";
 import { customersTable } from "./customer";
+import { destinationsTable } from "./destination";
 import { productTypesTable } from "./product-type";
 import { serviceTypesTable } from "./service-type";
 import { modeTypesTable } from "./mode-type";
@@ -34,6 +35,13 @@ export const shipmentsTable = pgTable("shipments", {
 
   senderAddress: jsonb("sender_address").notNull(),
   receiverAddress: jsonb("receiver_address").notNull(),
+
+  originDestinationId: uuid("origin_destination_id")
+    .notNull()
+    .references(() => destinationsTable.id),
+  deliveryDestinationId: uuid("delivery_destination_id")
+    .notNull()
+    .references(() => destinationsTable.id),
 
   productTypeId: uuid("product_type_id")
     .notNull()

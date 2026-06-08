@@ -4,86 +4,181 @@ import {
   productTypesTable,
   serviceTypesTable,
   modeTypesTable,
+  destinationsTable,
 } from "../schema";
-import { count, eq } from "drizzle-orm";
+import { count, asc } from "drizzle-orm";
 
-async function getIdByName(
-  table: typeof productTypesTable | typeof serviceTypesTable | typeof modeTypesTable,
-  name: string,
-): Promise<string> {
-  const [record] = await db
-    .select({ id: table.id })
-    .from(table)
-    .where(eq(table.name, name))
-    .limit(1);
-  if (!record) throw new Error(`Not found: ${name}`);
-  return record.id;
+// ── Multiplier tables ──────────────────────────────────────────────────
+
+const PRODUCT_MULTIPLIERS: Record<string, number> = {
+  Documents: 0.7,
+  Parcel: 1.0,
+  "Bulk Cargo": 0.85,
+  Textiles: 0.9,
+  Fragile: 1.5,
+  Electronics: 1.6,
+  Liquid: 1.8,
+  Perishable: 2.0,
+  "Heavy Goods": 2.5,
+};
+
+const SERVICE_MULTIPLIERS: Record<string, number> = {
+  Economy: 0.8,
+  Standard: 1.0,
+  Express: 1.5,
+  "Next-Day": 1.8,
+  Priority: 2.0,
+  "Same-Day": 2.5,
+};
+
+const MODE_MULTIPLIERS: Record<string, number> = {
+  Road: 1.0,
+  Rail: 0.9,
+  Multimodal: 1.3,
+  Air: 2.0,
+};
+
+// ── Distance tiers by region ───────────────────────────────────────────
+
+const REGIONS: Record<string, string[]> = {
+  north: ["Delhi", "Haryana", "Punjab", "Uttarakhand", "Rajasthan"],
+  central: ["Uttar Pradesh", "Madhya Pradesh"],
+  west: ["Maharashtra", "Gujarat", "Goa"],
+  south: ["Karnataka", "Tamil Nadu", "Telangana", "Kerala"],
+  east: ["West Bengal", "Bihar", "Odisha", "Jharkhand", "Assam", "Chhattisgarh"],
+};
+
+function getRegion(state: string): string {
+  for (const [region, states] of Object.entries(REGIONS)) {
+    if (states.includes(state)) return region;
+  }
+  return "other";
 }
+
+// Base rate per kg for state-to-state (Road, Standard, Parcel)
+function getBaseRate(originState: string, destState: string): number {
+  if (originState === destState) return 15;
+
+  const oRegion = getRegion(originState);
+  const dRegion = getRegion(destState);
+
+  if (oRegion === dRegion) return 25; // same region
+  // Adjacent regions
+  const adjacent: Record<string, string[]> = {
+    north: ["central", "west"],
+    central: ["north", "west", "east", "south"],
+    west: ["north", "central", "south"],
+    south: ["west", "central", "east"],
+    east: ["central", "south"],
+  };
+  if (adjacent[oRegion]?.includes(dRegion)) return 40;
+  return 55; // far away
+}
+
+// Minimum charge = base_rate × factor
+function getMinCharge(baseRate: number): number {
+  return Math.round(baseRate * 2.5);
+}
+
+// ── Seed ───────────────────────────────────────────────────────────────
 
 async function seed() {
   console.log("Seeding pricing rules...");
 
   const [existing] = await db.select({ count: count() }).from(pricingRulesTable);
   if ((existing?.count ?? 0) > 0) {
-    console.log(`  Pricing rules already seeded (${existing?.count} records)`);
-    process.exit(0);
+    console.log(`  Pricing rules already seeded (${existing?.count} records). Deleting and re-seeding...`);
+    await db.delete(pricingRulesTable);
   }
 
-  const parcelId = await getIdByName(productTypesTable, "Parcel");
-  const documentsId = await getIdByName(productTypesTable, "Documents");
-  const standardId = await getIdByName(serviceTypesTable, "Standard");
-  const expressId = await getIdByName(serviceTypesTable, "Express");
-  const roadId = await getIdByName(modeTypesTable, "Road");
-  const airId = await getIdByName(modeTypesTable, "Air");
-  const railId = await getIdByName(modeTypesTable, "Rail");
+  // Fetch all types
+  const productTypes = await db
+    .select({ id: productTypesTable.id, name: productTypesTable.name })
+    .from(productTypesTable)
+    .orderBy(asc(productTypesTable.name));
 
-  const rules = [
-    // Maharashtra -> Delhi
-    { originState: "Maharashtra", destinationState: "Delhi", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "45.00", minimumCharge: "100.00" },
-    { originState: "Maharashtra", destinationState: "Delhi", productTypeId: parcelId, serviceTypeId: expressId, modeTypeId: airId, unitPrice: "85.00", minimumCharge: "200.00" },
-    { originState: "Maharashtra", destinationState: "Delhi", productTypeId: documentsId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "30.00", minimumCharge: "50.00" },
-    // Maharashtra -> Karnataka
-    { originState: "Maharashtra", destinationState: "Karnataka", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "35.00", minimumCharge: "80.00" },
-    { originState: "Maharashtra", destinationState: "Karnataka", productTypeId: parcelId, serviceTypeId: expressId, modeTypeId: airId, unitPrice: "70.00", minimumCharge: "150.00" },
-    // Maharashtra -> Tamil Nadu
-    { originState: "Maharashtra", destinationState: "Tamil Nadu", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "50.00", minimumCharge: "120.00" },
-    { originState: "Maharashtra", destinationState: "Tamil Nadu", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: railId, unitPrice: "40.00", minimumCharge: "100.00" },
-    // Maharashtra -> Gujarat
-    { originState: "Maharashtra", destinationState: "Gujarat", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "25.00", minimumCharge: "60.00" },
-    // Delhi -> Maharashtra
-    { originState: "Delhi", destinationState: "Maharashtra", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "45.00", minimumCharge: "100.00" },
-    { originState: "Delhi", destinationState: "Maharashtra", productTypeId: documentsId, serviceTypeId: expressId, modeTypeId: airId, unitPrice: "60.00", minimumCharge: "100.00" },
-    // Delhi -> Karnataka
-    { originState: "Delhi", destinationState: "Karnataka", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "55.00", minimumCharge: "130.00" },
-    // Delhi -> UP
-    { originState: "Delhi", destinationState: "Uttar Pradesh", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "20.00", minimumCharge: "50.00" },
-    { originState: "Delhi", destinationState: "Uttar Pradesh", productTypeId: documentsId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "15.00", minimumCharge: "30.00" },
-    // Delhi -> Rajasthan
-    { originState: "Delhi", destinationState: "Rajasthan", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "22.00", minimumCharge: "55.00" },
-    // Karnataka -> Maharashtra
-    { originState: "Karnataka", destinationState: "Maharashtra", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "35.00", minimumCharge: "80.00" },
-    // Karnataka -> Delhi
-    { originState: "Karnataka", destinationState: "Delhi", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: airId, unitPrice: "80.00", minimumCharge: "180.00" },
-    // Karnataka -> Tamil Nadu
-    { originState: "Karnataka", destinationState: "Tamil Nadu", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "28.00", minimumCharge: "65.00" },
-    // Karnataka -> Telangana
-    { originState: "Karnataka", destinationState: "Telangana", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "25.00", minimumCharge: "60.00" },
-    // Gujarat -> Maharashtra
-    { originState: "Gujarat", destinationState: "Maharashtra", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "25.00", minimumCharge: "60.00" },
-    // Gujarat -> Delhi
-    { originState: "Gujarat", destinationState: "Delhi", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "40.00", minimumCharge: "90.00" },
-    // Tamil Nadu -> Maharashtra
-    { originState: "Tamil Nadu", destinationState: "Maharashtra", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "50.00", minimumCharge: "120.00" },
-    // Tamil Nadu -> Karnataka
-    { originState: "Tamil Nadu", destinationState: "Karnataka", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "28.00", minimumCharge: "65.00" },
-    // Intra-state rules
-    { originState: "Maharashtra", destinationState: "Maharashtra", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "15.00", minimumCharge: "40.00" },
-    { originState: "Delhi", destinationState: "Delhi", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "12.00", minimumCharge: "30.00" },
-    { originState: "Karnataka", destinationState: "Karnataka", productTypeId: parcelId, serviceTypeId: standardId, modeTypeId: roadId, unitPrice: "15.00", minimumCharge: "40.00" },
-  ];
+  const serviceTypes = await db
+    .select({ id: serviceTypesTable.id, name: serviceTypesTable.name })
+    .from(serviceTypesTable)
+    .orderBy(asc(serviceTypesTable.name));
 
-  await db.insert(pricingRulesTable).values(rules);
-  console.log(`  Inserted ${rules.length} pricing rules`);
+  const modeTypes = await db
+    .select({ id: modeTypesTable.id, name: modeTypesTable.name })
+    .from(modeTypesTable)
+    .orderBy(asc(modeTypesTable.name));
+
+  // Get unique states from destinations
+  const stateRows = await db
+    .selectDistinct({ state: destinationsTable.state })
+    .from(destinationsTable)
+    .orderBy(asc(destinationsTable.state));
+  const states = stateRows.map((r) => r.state);
+
+  console.log(`  ${productTypes.length} product types, ${serviceTypes.length} service types, ${modeTypes.length} mode types`);
+  console.log(`  ${states.length} states → ${states.length * states.length} state pairs`);
+
+  const typeCombos = productTypes.length * serviceTypes.length * modeTypes.length;
+  const totalRules = states.length * states.length * typeCombos;
+  console.log(`  ${typeCombos} type combos per route → ${totalRules} total rules`);
+
+  // Generate all rules
+  const BATCH_SIZE = 2000;
+  let batch: Array<{
+    originState: string;
+    destinationState: string;
+    productTypeId: string;
+    serviceTypeId: string;
+    modeTypeId: string;
+    unitPrice: string;
+    minimumCharge: string;
+  }> = [];
+  let inserted = 0;
+
+  for (const originState of states) {
+    for (const destState of states) {
+      const baseRate = getBaseRate(originState, destState);
+
+      for (const pt of productTypes) {
+        const pMul = PRODUCT_MULTIPLIERS[pt.name] ?? 1.0;
+
+        for (const st of serviceTypes) {
+          const sMul = SERVICE_MULTIPLIERS[st.name] ?? 1.0;
+
+          for (const mt of modeTypes) {
+            const mMul = MODE_MULTIPLIERS[mt.name] ?? 1.0;
+
+            const unitPrice = baseRate * pMul * sMul * mMul;
+            const minCharge = getMinCharge(baseRate) * pMul * sMul * mMul;
+
+            batch.push({
+              originState,
+              destinationState: destState,
+              productTypeId: pt.id,
+              serviceTypeId: st.id,
+              modeTypeId: mt.id,
+              unitPrice: unitPrice.toFixed(2),
+              minimumCharge: minCharge.toFixed(2),
+            });
+
+            if (batch.length >= BATCH_SIZE) {
+              await db.insert(pricingRulesTable).values(batch);
+              inserted += batch.length;
+              batch = [];
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Flush remaining
+  if (batch.length > 0) {
+    await db.insert(pricingRulesTable).values(batch);
+    inserted += batch.length;
+  }
+
+  console.log(`  Inserted ${inserted} pricing rules`);
+  console.log("Pricing rules seed complete.");
   process.exit(0);
 }
 

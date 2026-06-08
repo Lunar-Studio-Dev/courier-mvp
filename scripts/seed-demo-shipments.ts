@@ -4,6 +4,7 @@ import { count, sql } from "drizzle-orm";
 import {
   customersTable,
   branchesTable,
+  destinationsTable,
   productTypesTable,
   serviceTypesTable,
   modeTypesTable,
@@ -76,6 +77,7 @@ async function seed() {
 
   const customers = await db.select().from(customersTable);
   const branches = await db.select().from(branchesTable);
+  const destinations = await db.select().from(destinationsTable);
   const productTypes = await db.select().from(productTypesTable);
   const serviceTypes = await db.select().from(serviceTypesTable);
   const modeTypes = await db.select().from(modeTypesTable);
@@ -88,12 +90,19 @@ async function seed() {
     console.error("  No branches found. Run: pnpm db:seed:demo-branches");
     process.exit(1);
   }
+  if (destinations.length === 0) {
+    console.error("  No destinations found. Run: pnpm db:seed:destinations");
+    process.exit(1);
+  }
   if (productTypes.length === 0 || serviceTypes.length === 0 || modeTypes.length === 0) {
     console.error("  Missing master data. Run: pnpm db:seed");
     process.exit(1);
   }
 
-  console.log(`  Found ${customers.length} customers, ${branches.length} branches`);
+  // Build a pincode-to-destination lookup
+  const destByPincode = new Map(destinations.map((d) => [d.pincode, d]));
+
+  console.log(`  Found ${customers.length} customers, ${branches.length} branches, ${destinations.length} destinations`);
   console.log(`  ${productTypes.length} product types, ${serviceTypes.length} service types, ${modeTypes.length} mode types`);
 
   let seqNum = 1;
@@ -152,6 +161,10 @@ async function seed() {
         pincode: receiver.pincode,
       };
 
+      // Look up or pick random destinations for origin/delivery
+      const originDest = destByPincode.get(sender.pincode) ?? pickRandom(destinations);
+      const deliveryDest = destByPincode.get(receiver.pincode) ?? pickRandom(destinations);
+
       const deliveredAt =
         targetStatus === "DELIVERED"
           ? addHours(bookedAt, randomBetween(24, 168))
@@ -166,6 +179,8 @@ async function seed() {
           receiverId: receiver.id,
           senderAddress,
           receiverAddress,
+          originDestinationId: originDest.id,
+          deliveryDestinationId: deliveryDest.id,
           productTypeId: productType.id,
           serviceTypeId: serviceType.id,
           modeTypeId: modeType.id,

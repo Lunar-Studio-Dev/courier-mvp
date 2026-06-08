@@ -11,6 +11,8 @@ export type Shipment = {
   trackingNumber: string;
   senderAddress: { fullName: string; city: string; state: string };
   receiverAddress: { fullName: string; city: string; state: string };
+  originCity: string | null;
+  deliveryCity: string | null;
   status: string;
   totalAmount: string;
   bookedAt: string | null;
@@ -61,7 +63,7 @@ export function getColumns(actions: ColumnActions): ColumnDef<Shipment>[] {
       header: "Route",
       cell: ({ row }) => (
         <span className="text-sm">
-          {row.original.senderAddress.city} → {row.original.receiverAddress.city}
+          {row.original.originCity ?? row.original.senderAddress.city} → {row.original.deliveryCity ?? row.original.receiverAddress.city}
         </span>
       ),
     },

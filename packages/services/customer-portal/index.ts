@@ -4,10 +4,12 @@ import {
   shipmentTrackingHistoryTable,
   customersTable,
   branchesTable,
+  destinationsTable,
   productTypesTable,
   serviceTypesTable,
   modeTypesTable,
 } from "@repo/database/schema";
+import { alias } from "drizzle-orm/pg-core";
 import { eq, and, or, count, SQL, gte, lte, desc, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import type {
@@ -16,6 +18,9 @@ import type {
   UpdateProfileInput,
   CustomerProfileOutput,
 } from "./model";
+
+const originDest = alias(destinationsTable, "portal_origin_dest");
+const deliveryDest = alias(destinationsTable, "portal_delivery_dest");
 
 class CustomerPortalService {
   async getMyShipments(
@@ -55,12 +60,16 @@ class CustomerPortalService {
           trackingNumber: shipmentsTable.trackingNumber,
           status: shipmentsTable.status,
           bookedAt: shipmentsTable.bookedAt,
-          senderAddress: shipmentsTable.senderAddress,
-          receiverAddress: shipmentsTable.receiverAddress,
           totalAmount: shipmentsTable.totalAmount,
           senderId: shipmentsTable.senderId,
+          originCity: originDest.city,
+          originState: originDest.state,
+          deliveryCity: deliveryDest.city,
+          deliveryState: deliveryDest.state,
         })
         .from(shipmentsTable)
+        .leftJoin(originDest, eq(shipmentsTable.originDestinationId, originDest.id))
+        .leftJoin(deliveryDest, eq(shipmentsTable.deliveryDestinationId, deliveryDest.id))
         .where(where)
         .orderBy(desc(shipmentsTable.bookedAt))
         .limit(limit)
@@ -69,23 +78,15 @@ class CustomerPortalService {
     ]);
 
     const mapped = data.map((row) => {
-      const sAddr = row.senderAddress as {
-        city: string;
-        state: string;
-      };
-      const rAddr = row.receiverAddress as {
-        city: string;
-        state: string;
-      };
       return {
         id: row.id,
         trackingNumber: row.trackingNumber,
         status: row.status,
         bookedAt: row.bookedAt,
-        senderCity: sAddr.city,
-        senderState: sAddr.state,
-        receiverCity: rAddr.city,
-        receiverState: rAddr.state,
+        senderCity: row.originCity ?? "",
+        senderState: row.originState ?? "",
+        receiverCity: row.deliveryCity ?? "",
+        receiverState: row.deliveryState ?? "",
         totalAmount: row.totalAmount,
         isSender: row.senderId === customerId,
       };
@@ -118,6 +119,12 @@ class CustomerPortalService {
         weight: shipmentsTable.weight,
         senderId: shipmentsTable.senderId,
         receiverId: shipmentsTable.receiverId,
+        originCity: originDest.city,
+        originState: originDest.state,
+        originPincode: originDest.pincode,
+        deliveryCity: deliveryDest.city,
+        deliveryState: deliveryDest.state,
+        deliveryPincode: deliveryDest.pincode,
         branchName: branchesTable.name,
         productTypeName: productTypesTable.name,
         serviceTypeName: serviceTypesTable.name,
@@ -125,6 +132,8 @@ class CustomerPortalService {
       })
       .from(shipmentsTable)
       .innerJoin(branchesTable, eq(shipmentsTable.branchId, branchesTable.id))
+      .leftJoin(originDest, eq(shipmentsTable.originDestinationId, originDest.id))
+      .leftJoin(deliveryDest, eq(shipmentsTable.deliveryDestinationId, deliveryDest.id))
       .innerJoin(
         productTypesTable,
         eq(shipmentsTable.productTypeId, productTypesTable.id),
